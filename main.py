@@ -12,7 +12,6 @@ from fastapi.responses import Response
 class Censor:
     def __init__(self):
         self._model = YOLO("models/ntd11_anime_nsfw_segm_v5-variant1.pt")
-        print(self._model.device)
 
     def _detect(self, image, conf, iou, device=None):
         result = self._model.predict(
@@ -27,19 +26,23 @@ class Censor:
         )[0]
 
         if result.masks is None:
-            return Image.new("L", image.size, 0)
+            return None
 
         return Image.fromarray(result.masks.data.any(dim=0).cpu().numpy().astype("uint8") * 255)
 
-    def censor(self, image, conf, iou, device=None, mask_only=False):
+    def censor(self, image, conf, iou, cell_size=None, device=None, mask_only=False):
         image = image.convert("RGB")
         mask = self._detect(image, conf, iou, device)
+
+        if mask is None:
+            return b""
+
         output = BytesIO()
 
         if mask_only:
             mask.save(output, format="PNG")
         else:
-            cell_size = max(image.size) // 100
+            cell_size = max(image.size) // 100 if cell_size is None else int(cell_size)
             small = image.resize((image.width // cell_size, image.height // cell_size))
             image.paste(small.resize(image.size, Image.Resampling.NEAREST), mask)
             image.save(output, format="PNG")
@@ -62,6 +65,7 @@ async def censor(body: dict):
         Image.open(BytesIO(b64decode(encoding))),
         body.get("conf", 0.5),
         body.get("iou", 1.0),
+        body.get("cell_size"),
         body.get("device"),
         body.get("mask_only")
     ), media_type="image/png")
