@@ -13,7 +13,7 @@ class Censor:
     def __init__(self):
         self._model = YOLO("models/ntd11_anime_nsfw_segm_v5-variant1.pt")
 
-    def _detect(self, image, conf, iou, device=None):
+    def _detect(self, image, conf, iou, device=None, require_both_genitals=False):
         result = self._model.predict(
             source=image,
             conf=conf,
@@ -25,12 +25,12 @@ class Censor:
             channels_last=True
         )[0]
 
-        if result.masks is None:
+        if result.masks is None or require_both_genitals and (1 not in result.boxes.cls or 3 not in result.boxes.cls):
             return None
 
         return Image.fromarray(result.masks.data.any(dim=0).cpu().numpy().astype("uint8") * 255)
 
-    def censor(self, image, conf, iou, cell_size=None, device=None, mask_only=False):
+    def censor(self, image, conf, iou, device=None, require_both_genitals=False, cell_size=None, mask_only=False):
         image = image.convert("RGB")
         mask = self._detect(image, conf, iou, device)
 
@@ -65,8 +65,9 @@ async def censor(body: dict):
         Image.open(BytesIO(b64decode(encoding))),
         body.get("conf", 0.5),
         body.get("iou", 1.0),
-        body.get("cell_size"),
         body.get("device"),
+        body.get("require_both_genitals", True),
+        body.get("cell_size"),
         body.get("mask_only")
     ), media_type="image/png")
 
